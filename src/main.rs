@@ -3,6 +3,7 @@ use std::str::FromStr;
 use anyhow::Result;
 use clap::Parser;
 use futures_util::TryStreamExt;
+use indexmap::IndexMap;
 use scylla::frame::response::result::CqlValue;
 
 #[derive(Parser)]
@@ -14,7 +15,7 @@ struct Args {
     #[clap(short = 'c', long)]
     command: String,
     #[clap(short, long, default_value = "json")]
-    output: Option<Format>,
+    output: Format,
 }
 
 #[derive(Default, Clone)]
@@ -47,11 +48,25 @@ async fn run() -> Result<()> {
         .await?;
 
     let rows = sess.query_iter(&*args.command, ()).await?;
-    rows.try_for_each(|row| async {
-        let _values = row.columns.into_iter().map(Value);
-        Ok(())
-    })
-    .await?;
+    let cols = rows.get_column_specs().to_vec();
+    rows.map_err(anyhow::Error::from)
+        .try_for_each(|row| async {
+            assert_eq!(cols.len(), row.columns.len());
+            // IndexMap is used to preserve the order insertion
+            let values = row
+                .columns
+                .into_iter()
+                .map(Value)
+                .zip(&cols)
+                .map(|(v, c)| (c.name.clone(), v))
+                .collect::<IndexMap<_, _>>();
+
+            match args.output {
+                Format::Json => serde_json::to_writer(std::io::stdout(), &values)?,
+            }
+            Ok(())
+        })
+        .await?;
     Ok(())
 }
 
