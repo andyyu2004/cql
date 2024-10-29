@@ -1,0 +1,11 @@
+[package]
+name = "cql"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.91"
+clap = { version = "4.5.20", features = ["derive"] }
+futures-util = "0.3.31"
+scylla = "0.14.0"
+tokio = { version = "1.41.0", features = ["rt-multi-thread", "macros"] }
