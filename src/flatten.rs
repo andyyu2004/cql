@@ -1,5 +1,3 @@
-use serde_json;
-
 pub fn flatten(json: &serde_json::Value) -> serde_json::Value {
     let mut result = serde_json::Map::new();
 

@@ -6,6 +6,12 @@ use futures_util::TryStreamExt;
 use indexmap::IndexMap;
 use scylla::frame::response::result::CqlValue;
 
+mod flatten;
+mod value;
+
+#[cfg(feature = "json")]
+mod serde_impls;
+
 #[derive(Parser)]
 struct Args {
     #[clap(short, long, default_value = "9042")]
@@ -67,7 +73,7 @@ async fn run() -> Result<()> {
             let values = row
                 .columns
                 .into_iter()
-                .map(Value)
+                .map(SerializableCqlValue)
                 .zip(&cols)
                 .map(|(v, c)| (c.name.clone(), v))
                 .collect::<IndexMap<_, _>>();
@@ -85,18 +91,12 @@ async fn run() -> Result<()> {
     Ok(())
 }
 
-struct Value(Option<CqlValue>);
+struct SerializableCqlValue(Option<CqlValue>);
 
-struct ValueRef<'a>(Option<&'a CqlValue>);
+struct SerializableCqlValueRef<'a>(Option<&'a CqlValue>);
 
-impl<'a> ValueRef<'a> {
+impl<'a> SerializableCqlValueRef<'a> {
     fn new(value: &'a CqlValue) -> Self {
         Self(Some(value))
     }
 }
-
-#[cfg(feature = "json")]
-mod flatten;
-
-#[cfg(feature = "json")]
-mod serde_impls;
