@@ -1,10 +1,11 @@
-use std::str::FromStr;
+use std::{io::Write, str::FromStr};
 
 use anyhow::Result;
 use clap::Parser;
 use futures_util::TryStreamExt;
 use indexmap::IndexMap;
 use scylla::frame::response::result::CqlValue;
+use serde::Serialize;
 
 mod flatten;
 mod value;
@@ -20,6 +21,8 @@ struct Args {
     host: String,
     #[clap(short = 'c', long)]
     command: String,
+    #[clap(long)]
+    flatten: bool,
     #[cfg(feature = "json")]
     #[clap(short, long, default_value = "json")]
     output: Format,
@@ -30,7 +33,7 @@ struct Args {
     output: Format,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Copy, Clone)]
 enum Format {
     #[cfg(feature = "json")]
     Json,
@@ -79,15 +82,30 @@ async fn run() -> Result<()> {
                 .collect::<IndexMap<_, _>>();
 
             let stdout = std::io::stdout();
-            match args.output {
-                #[cfg(feature = "json")]
-                Format::Json => serde_json::to_writer(stdout, &values)?,
-                #[cfg(feature = "csv")]
-                Format::Csv => csv::Writer::from_writer(stdout).serialize(values)?,
-            }
+
+            if args.flatten {
+                write(
+                    stdout.lock(),
+                    args.output,
+                    flatten::flatten(serde_json::to_value(values)?),
+                )?
+            } else {
+                write(stdout.lock(), args.output, values)?
+            };
+
             Ok(())
         })
         .await?;
+    Ok(())
+}
+
+fn write(writer: impl Write, format: Format, values: impl Serialize) -> anyhow::Result<()> {
+    match format {
+        #[cfg(feature = "json")]
+        Format::Json => serde_json::to_writer(writer, &values)?,
+        #[cfg(feature = "csv")]
+        Format::Csv => csv::Writer::from_writer(writer).serialize(values)?,
+    }
     Ok(())
 }
 

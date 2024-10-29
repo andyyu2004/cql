@@ -25,4 +25,7 @@ json = ["dep:serde_json"]
 msgpack = ["dep:rmp-serde"]
 csv = ["dep:csv"]
 
+[dev-dependencies]
+expect-test = "1.5.0"
+
 

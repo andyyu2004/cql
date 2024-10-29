@@ -115,7 +115,7 @@ where
     }
 
     #[cfg(feature = "msgpack")]
-    if let Ok(v) = rmp_serde::from_slice::<Value>(bytes) {
+    if let Ok(v) = rmp_serde::from_slice::<crate::value::Value>(bytes) {
         return v.serialize(serializer);
     }
 
