@@ -6,18 +6,18 @@ use serde::{
     Serialize as _,
 };
 
-use crate::{Value, ValueRef};
+use crate::{value::Value, SerializableCqlValue, SerializableCqlValueRef};
 
-impl serde::Serialize for Value {
+impl serde::Serialize for SerializableCqlValue {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
-        ValueRef(self.0.as_ref()).serialize(serializer)
+        SerializableCqlValueRef(self.0.as_ref()).serialize(serializer)
     }
 }
 
-impl serde::Serialize for ValueRef<'_> {
+impl serde::Serialize for SerializableCqlValueRef<'_> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
@@ -51,21 +51,24 @@ impl serde::Serialize for ValueRef<'_> {
             CqlValue::List(xs) => {
                 let mut seq = serializer.serialize_seq(Some(xs.len()))?;
                 for x in xs {
-                    seq.serialize_element(&ValueRef::new(x))?;
+                    seq.serialize_element(&SerializableCqlValueRef::new(x))?;
                 }
                 seq.end()
             }
             CqlValue::Map(map) => {
                 let mut seq = serializer.serialize_map(Some(map.len()))?;
                 for (k, v) in map {
-                    seq.serialize_entry(&ValueRef::new(k), &ValueRef::new(v))?;
+                    seq.serialize_entry(
+                        &SerializableCqlValueRef::new(k),
+                        &SerializableCqlValueRef::new(v),
+                    )?;
                 }
                 seq.end()
             }
             CqlValue::Set(set) => {
                 let mut seq = serializer.serialize_seq(Some(set.len()))?;
                 for x in set {
-                    seq.serialize_element(&ValueRef::new(x))?;
+                    seq.serialize_element(&SerializableCqlValueRef::new(x))?;
                 }
                 seq.end()
             }
@@ -77,7 +80,7 @@ impl serde::Serialize for ValueRef<'_> {
                 // just use serialize_map not serialize_struct, (requires 'static lifetime and we don't care about any formats that require the type name)
                 let mut s = serializer.serialize_map(Some(fields.len()))?;
                 for (k, v) in fields {
-                    s.serialize_entry(k, &ValueRef(v.as_ref()))?;
+                    s.serialize_entry(k, &SerializableCqlValueRef(v.as_ref()))?;
                 }
                 s.end()
             }
@@ -92,7 +95,7 @@ impl serde::Serialize for ValueRef<'_> {
             CqlValue::Tuple(tup) => {
                 let mut seq = serializer.serialize_tuple(tup.len())?;
                 for x in tup {
-                    seq.serialize_element(&ValueRef(x.as_ref()))?;
+                    seq.serialize_element(&SerializableCqlValueRef(x.as_ref()))?;
                 }
                 seq.end()
             }
@@ -105,48 +108,15 @@ fn dwim_bytes<S>(serializer: S, bytes: &[u8]) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
-    if let Ok(v) = serde_json::from_slice::<serde_json::Value>(bytes) {
-        return v.serialize(serializer);
+    if is_json_start(bytes) {
+        if let Ok(v) = serde_json::from_slice::<serde_json::Value>(bytes) {
+            return v.serialize(serializer);
+        }
     }
 
     #[cfg(feature = "msgpack")]
-    if let Ok(v) = rmp_serde::from_slice::<rmpv::Value>(bytes) {
-        struct Wrap<'a>(&'a rmpv::Value);
-
-        impl serde::Serialize for Wrap<'_> {
-            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-            where
-                S: serde::Serializer,
-            {
-                use rmpv::Value;
-                match &self.0 {
-                    Value::Binary(bytes) => {
-                        if let Ok(id) = uuid::Uuid::from_slice(bytes) {
-                            id.serialize(serializer)
-                        } else {
-                            bytes.serialize(serializer)
-                        }
-                    }
-                    Value::Array(xs) => {
-                        let mut seq = serializer.serialize_seq(Some(xs.len()))?;
-                        for x in xs {
-                            seq.serialize_element(&Wrap(x))?;
-                        }
-                        seq.end()
-                    }
-                    Value::Map(xs) => {
-                        let mut seq = serializer.serialize_map(Some(xs.len()))?;
-                        for (k, v) in xs {
-                            seq.serialize_entry(&Wrap(k), &Wrap(v))?;
-                        }
-                        seq.end()
-                    }
-                    v => v.serialize(serializer),
-                }
-            }
-        }
-
-        return Wrap(&v).serialize(serializer);
+    if let Ok(v) = rmp_serde::from_slice::<Value>(bytes) {
+        return v.serialize(serializer);
     }
 
     serializer.serialize_bytes(bytes)
