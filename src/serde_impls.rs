@@ -156,9 +156,19 @@ fn dwim_str<S>(serializer: S, s: &str) -> Result<S::Ok, S::Error>
 where
     S: serde::Serializer,
 {
-    if let Ok(v) = serde_json::from_str::<serde_json::Value>(s) {
-        return v.serialize(serializer);
+    if is_json_start(s) {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(s) {
+            return v.serialize(serializer);
+        }
     }
 
     serializer.serialize_str(s)
+}
+
+// quick check to avoid false parsing of non-json strings
+fn is_json_start(s: impl AsRef<[u8]>) -> bool {
+    match s.as_ref().first() {
+        Some(c) => matches!(c, b'{' | b'[' | b'"' | b'0'..=b'9' | b't' | b'f' | b'n'),
+        None => false,
+    }
 }

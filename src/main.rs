@@ -97,5 +97,6 @@ impl<'a> ValueRef<'a> {
 
 #[cfg(feature = "json")]
 mod flatten;
+
 #[cfg(feature = "json")]
 mod serde_impls;
