@@ -20,6 +20,8 @@ struct Args {
     host: String,
     #[clap(short = 'c', long)]
     command: String,
+    #[clap(long)]
+    flatten: bool,
     #[cfg(feature = "json")]
     #[clap(short, long, default_value = "json")]
     output: Format,
