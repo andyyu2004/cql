@@ -1,7 +1,10 @@
 use bigdecimal::BigDecimal;
 use num_bigint::BigInt;
 use scylla::frame::response::result::CqlValue;
-use serde::ser::{SerializeMap, SerializeSeq, SerializeTuple};
+use serde::{
+    ser::{SerializeMap, SerializeSeq, SerializeTuple},
+    Serialize as _,
+};
 
 use crate::{Value, ValueRef};
 
@@ -25,23 +28,9 @@ impl serde::Serialize for ValueRef<'_> {
         };
 
         match value {
-            CqlValue::Ascii(s) => {
-                // attempt to parse as json
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(s) {
-                    json.serialize(serializer)
-                } else {
-                    serializer.serialize_str(s)
-                }
-            }
+            CqlValue::Text(s) | CqlValue::Ascii(s) => dwim_str(serializer, s),
+            CqlValue::Blob(b) => dwim_bytes(serializer, b),
             CqlValue::Boolean(b) => serializer.serialize_bool(*b),
-            CqlValue::Blob(b) => {
-                // attempt to parse as json
-                if let Ok(json) = serde_json::from_slice::<serde_json::Value>(b) {
-                    json.serialize(serializer)
-                } else {
-                    serializer.serialize_bytes(b)
-                }
-            }
             CqlValue::Counter(c) => serializer.serialize_i64(c.0),
             CqlValue::Decimal(d) => BigDecimal::from(d.clone()).serialize(serializer),
             CqlValue::Date(d) => {
@@ -54,14 +43,6 @@ impl serde::Serialize for ValueRef<'_> {
             CqlValue::Float(f) => serializer.serialize_f32(*f),
             CqlValue::Int(i) => serializer.serialize_i32(*i),
             CqlValue::BigInt(i) => serializer.serialize_i64(*i),
-            CqlValue::Text(s) => {
-                // attempt to parse as json
-                if let Ok(json) = serde_json::from_str::<serde_json::Value>(s) {
-                    json.serialize(serializer)
-                } else {
-                    serializer.serialize_str(s)
-                }
-            }
             CqlValue::Timestamp(t) => {
                 let t: chrono::DateTime<chrono::Utc> = (*t).try_into().unwrap();
                 t.serialize(serializer)
@@ -107,6 +88,7 @@ impl serde::Serialize for ValueRef<'_> {
                 t.serialize(serializer)
             }
             CqlValue::Timeuuid(id) => serializer.collect_str(id),
+            CqlValue::Uuid(id) => serializer.collect_str(id),
             CqlValue::Tuple(tup) => {
                 let mut seq = serializer.serialize_tuple(tup.len())?;
                 for x in tup {
@@ -114,8 +96,34 @@ impl serde::Serialize for ValueRef<'_> {
                 }
                 seq.end()
             }
-            CqlValue::Uuid(id) => id.serialize(serializer),
             CqlValue::Varint(i) => BigInt::from(i.clone()).serialize(serializer),
         }
     }
+}
+
+fn dwim_bytes<S>(serializer: S, bytes: &[u8]) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    if let Ok(v) = serde_json::from_slice::<serde_json::Value>(bytes) {
+        return v.serialize(serializer);
+    }
+
+    #[cfg(feature = "msgpack")]
+    if let Ok(v) = rmp_serde::from_slice::<rmpv::Value>(bytes) {
+        return v.serialize(serializer);
+    }
+
+    serializer.serialize_bytes(bytes)
+}
+
+fn dwim_str<S>(serializer: S, s: &str) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(s) {
+        return v.serialize(serializer);
+    }
+
+    serializer.serialize_str(s)
 }
