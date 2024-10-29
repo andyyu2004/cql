@@ -111,7 +111,42 @@ where
 
     #[cfg(feature = "msgpack")]
     if let Ok(v) = rmp_serde::from_slice::<rmpv::Value>(bytes) {
-        return v.serialize(serializer);
+        struct Wrap<'a>(&'a rmpv::Value);
+
+        impl serde::Serialize for Wrap<'_> {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: serde::Serializer,
+            {
+                use rmpv::Value;
+                match &self.0 {
+                    Value::Binary(bytes) => {
+                        if let Ok(id) = uuid::Uuid::from_slice(bytes) {
+                            id.serialize(serializer)
+                        } else {
+                            bytes.serialize(serializer)
+                        }
+                    }
+                    Value::Array(xs) => {
+                        let mut seq = serializer.serialize_seq(Some(xs.len()))?;
+                        for x in xs {
+                            seq.serialize_element(&Wrap(x))?;
+                        }
+                        seq.end()
+                    }
+                    Value::Map(xs) => {
+                        let mut seq = serializer.serialize_map(Some(xs.len()))?;
+                        for (k, v) in xs {
+                            seq.serialize_entry(&Wrap(k), &Wrap(v))?;
+                        }
+                        seq.end()
+                    }
+                    v => v.serialize(serializer),
+                }
+            }
+        }
+
+        return Wrap(&v).serialize(serializer);
     }
 
     serializer.serialize_bytes(bytes)
