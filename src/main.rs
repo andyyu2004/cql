@@ -14,14 +14,22 @@ struct Args {
     host: String,
     #[clap(short = 'c', long)]
     command: String,
+    #[cfg(feature = "json")]
     #[clap(short, long, default_value = "json")]
+    output: Format,
+    #[cfg(all(feature = "csv", not(feature = "json")))]
+    #[clap(short, long, default_value = "csv")]
+    output: Format,
+    #[cfg(not(any(feature = "json", feature = "csv")))]
     output: Format,
 }
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 enum Format {
-    #[default]
+    #[cfg(feature = "json")]
     Json,
+    #[cfg(feature = "csv")]
+    Csv,
 }
 
 impl FromStr for Format {
@@ -29,7 +37,10 @@ impl FromStr for Format {
 
     fn from_str(s: &str) -> Result<Self> {
         match s {
+            #[cfg(feature = "json")]
             "json" => Ok(Self::Json),
+            #[cfg(feature = "csv")]
+            "csv" => Ok(Self::Csv),
             _ => Err(anyhow::anyhow!("unknown format: {s}")),
         }
     }
@@ -61,8 +72,12 @@ async fn run() -> Result<()> {
                 .map(|(v, c)| (c.name.clone(), v))
                 .collect::<IndexMap<_, _>>();
 
+            let stdout = std::io::stdout();
             match args.output {
-                Format::Json => serde_json::to_writer(std::io::stdout(), &values)?,
+                #[cfg(feature = "json")]
+                Format::Json => serde_json::to_writer(stdout, &values)?,
+                #[cfg(feature = "csv")]
+                Format::Csv => csv::Writer::from_writer(stdout).serialize(values)?,
             }
             Ok(())
         })
@@ -80,5 +95,4 @@ impl<'a> ValueRef<'a> {
     }
 }
 
-#[cfg(feature = "serde")]
 mod serde_impls;
