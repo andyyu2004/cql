@@ -25,9 +25,23 @@ impl serde::Serialize for ValueRef<'_> {
         };
 
         match value {
-            CqlValue::Ascii(s) => serializer.serialize_str(s),
+            CqlValue::Ascii(s) => {
+                // attempt to parse as json
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(s) {
+                    json.serialize(serializer)
+                } else {
+                    serializer.serialize_str(s)
+                }
+            }
             CqlValue::Boolean(b) => serializer.serialize_bool(*b),
-            CqlValue::Blob(b) => serializer.serialize_bytes(b),
+            CqlValue::Blob(b) => {
+                // attempt to parse as json
+                if let Ok(json) = serde_json::from_slice::<serde_json::Value>(b) {
+                    json.serialize(serializer)
+                } else {
+                    serializer.serialize_bytes(b)
+                }
+            }
             CqlValue::Counter(c) => serializer.serialize_i64(c.0),
             CqlValue::Decimal(d) => BigDecimal::from(d.clone()).serialize(serializer),
             CqlValue::Date(d) => {
@@ -40,7 +54,14 @@ impl serde::Serialize for ValueRef<'_> {
             CqlValue::Float(f) => serializer.serialize_f32(*f),
             CqlValue::Int(i) => serializer.serialize_i32(*i),
             CqlValue::BigInt(i) => serializer.serialize_i64(*i),
-            CqlValue::Text(s) => serializer.serialize_str(s),
+            CqlValue::Text(s) => {
+                // attempt to parse as json
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(s) {
+                    json.serialize(serializer)
+                } else {
+                    serializer.serialize_str(s)
+                }
+            }
             CqlValue::Timestamp(t) => {
                 let t: chrono::DateTime<chrono::Utc> = (*t).try_into().unwrap();
                 t.serialize(serializer)
