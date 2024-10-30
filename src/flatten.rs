@@ -2,22 +2,38 @@ use serde::Serializer;
 
 pub struct DotFlattened<S> {
     inner: S,
-    state: State,
+    prefix: String,
 }
 
 impl<S> DotFlattened<S> {
     fn new(inner: S) -> Self {
         Self {
             inner,
-            state: State::Top,
+            prefix: String::new(),
         }
     }
 }
 
-enum State {
-    Top,
-    InMap,
-    InList,
+struct SerializeSeq<'a, S: Serializer> {
+    prefix: &'a str,
+    inner: S::SerializeSeq,
+}
+
+impl<'a, S: Serializer> serde::ser::SerializeSeq for SerializeSeq<'a, S> {
+    type Ok = S::Ok;
+
+    type Error = S::Error;
+
+    fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
+    where
+        T: ?Sized + serde::Serialize,
+    {
+        self.inner.serialize_element(value)
+    }
+
+    fn end(self) -> Result<Self::Ok, Self::Error> {
+        self.inner.end()
+    }
 }
 
 impl<S: Serializer> Serializer for DotFlattened<S> {
@@ -150,7 +166,10 @@ impl<S: Serializer> Serializer for DotFlattened<S> {
     }
 
     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq, Self::Error> {
-        Ok(&mut self)
+        Ok(SerializeSeq {
+            prefix: &self.prefix,
+            inner: self.inner.serialize_seq(len)?,
+        })
     }
 
     fn serialize_tuple(self, len: usize) -> Result<Self::SerializeTuple, Self::Error> {
