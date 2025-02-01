@@ -220,6 +220,10 @@ pub async fn run(sess: &Session) -> Result<()> {
     loop {
         match readline.read_line(&prompt)? {
             reedline::Signal::Success(command) => {
+                if command.trim().is_empty() {
+                    continue;
+                }
+
                 exec_args.command = command;
                 match exec(sess, &exec_args).await {
                     Ok(()) => (),
