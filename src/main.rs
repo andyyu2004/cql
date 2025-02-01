@@ -8,6 +8,7 @@ use scylla::{frame::response::result::CqlValue, Session};
 use serde::Serialize;
 
 mod flatten;
+mod repl;
 mod value;
 
 #[cfg(feature = "json")]
@@ -83,42 +84,7 @@ async fn run() -> Result<()> {
         Some(subcmd) => match subcmd {
             Subcommand::Exec(args) => exec(&sess, &args).await?,
         },
-        None => repl(&sess).await?,
-    }
-
-    Ok(())
-}
-
-async fn repl(sess: &Session) -> Result<()> {
-    use reedline::{DefaultPrompt, DefaultPromptSegment, FileBackedHistory, Reedline};
-
-    let history_path = match dirs::home_dir() {
-        Some(home) => home.join("local/share/cql/history"),
-        None => std::env::current_dir()?.join(".cql_history"),
-    };
-
-    let mut editor = Reedline::create().with_history(Box::new(FileBackedHistory::with_file(
-        10_000,
-        history_path,
-    )?));
-
-    let prompt = DefaultPrompt::new(
-        DefaultPromptSegment::Basic("cql".to_string()),
-        DefaultPromptSegment::Empty,
-    );
-
-    let mut exec_args = ExecArgs {
-        command: String::new(),
-        flatten: false,
-        output: Format::JsonPretty,
-    };
-
-    while let reedline::Signal::Success(command) = editor.read_line(&prompt)? {
-        exec_args.command = command;
-        match exec(sess, &exec_args).await {
-            Ok(()) => (),
-            Err(err) => eprintln!("{err}"),
-        }
+        None => repl::run(&sess).await?,
     }
 
     Ok(())
