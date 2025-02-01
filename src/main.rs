@@ -4,7 +4,7 @@ use anyhow::Result;
 use clap::Parser;
 use futures_util::TryStreamExt;
 use indexmap::IndexMap;
-use scylla::frame::response::result::CqlValue;
+use scylla::{frame::response::result::CqlValue, Session};
 use serde::Serialize;
 
 mod flatten;
@@ -19,11 +19,21 @@ struct Args {
     port: u16,
     #[clap(default_value = "localhost")]
     host: String,
-    #[clap(short = 'c', long)]
-    command: String,
-    #[clap(long)]
-    flatten: bool,
     #[cfg(feature = "json")]
+    #[clap(subcommand)]
+    subcommand: Option<Subcommand>,
+}
+
+#[derive(Parser)]
+enum Subcommand {
+    Exec(ExecArgs),
+}
+
+#[derive(Parser)]
+struct ExecArgs {
+    command: String,
+    #[clap(short)]
+    flatten: bool,
     #[clap(short, long, default_value = "json")]
     output: Format,
     #[cfg(all(feature = "csv", not(feature = "json")))]
@@ -37,6 +47,8 @@ struct Args {
 enum Format {
     #[cfg(feature = "json")]
     Json,
+    #[cfg(feature = "json")]
+    JsonPretty,
     #[cfg(feature = "csv")]
     Csv,
 }
@@ -67,6 +79,43 @@ async fn run() -> Result<()> {
         .build()
         .await?;
 
+    match args.subcommand {
+        Some(subcmd) => match subcmd {
+            Subcommand::Exec(args) => exec(&sess, &args).await?,
+        },
+        None => repl(&sess).await?,
+    }
+
+    Ok(())
+}
+
+async fn repl(sess: &Session) -> Result<()> {
+    use reedline::{DefaultPrompt, DefaultPromptSegment, Reedline};
+
+    let mut editor = Reedline::create();
+    let prompt = DefaultPrompt::new(
+        DefaultPromptSegment::Basic("cql".to_string()),
+        DefaultPromptSegment::Empty,
+    );
+
+    let mut exec_args = ExecArgs {
+        command: String::new(),
+        flatten: false,
+        output: Format::JsonPretty,
+    };
+
+    while let reedline::Signal::Success(command) = editor.read_line(&prompt)? {
+        exec_args.command = command;
+        match exec(sess, &exec_args).await {
+            Ok(()) => (),
+            Err(err) => eprintln!("{err}"),
+        }
+    }
+
+    Ok(())
+}
+
+async fn exec(sess: &Session, args: &ExecArgs) -> Result<()> {
     let rows = sess.query_iter(&*args.command, ()).await?;
     let cols = rows.get_column_specs().to_vec();
     rows.map_err(anyhow::Error::from)
@@ -88,7 +137,7 @@ async fn run() -> Result<()> {
                     stdout.lock(),
                     args.output,
                     flatten::flatten(serde_json::to_value(values)?),
-                )?
+                )?;
             } else {
                 write(stdout.lock(), args.output, values)?
             };
@@ -99,10 +148,15 @@ async fn run() -> Result<()> {
     Ok(())
 }
 
-fn write(writer: impl Write, format: Format, values: impl Serialize) -> anyhow::Result<()> {
+fn write(mut writer: impl Write, format: Format, values: impl Serialize) -> anyhow::Result<()> {
     match format {
         #[cfg(feature = "json")]
         Format::Json => serde_json::to_writer(writer, &values)?,
+        #[cfg(feature = "json")]
+        Format::JsonPretty => {
+            serde_json::to_writer_pretty(&mut writer, &values)?;
+            writeln!(&mut writer)?
+        }
         #[cfg(feature = "csv")]
         Format::Csv => csv::Writer::from_writer(writer).serialize(values)?,
     }
