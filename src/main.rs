@@ -90,9 +90,18 @@ async fn run() -> Result<()> {
 }
 
 async fn repl(sess: &Session) -> Result<()> {
-    use reedline::{DefaultPrompt, DefaultPromptSegment, Reedline};
+    use reedline::{DefaultPrompt, DefaultPromptSegment, FileBackedHistory, Reedline};
 
-    let mut editor = Reedline::create();
+    let history_path = match dirs::home_dir() {
+        Some(home) => home.join("local/share/cql/history"),
+        None => std::env::current_dir()?.join(".cql_history"),
+    };
+
+    let mut editor = Reedline::create().with_history(Box::new(FileBackedHistory::with_file(
+        10_000,
+        history_path,
+    )?));
+
     let prompt = DefaultPrompt::new(
         DefaultPromptSegment::Basic("cql".to_string()),
         DefaultPromptSegment::Empty,
