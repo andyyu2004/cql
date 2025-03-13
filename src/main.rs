@@ -1,4 +1,7 @@
-use std::{io::Write, str::FromStr};
+use std::{
+    io::{Read, Write},
+    str::FromStr,
+};
 
 use anyhow::Result;
 use clap::Parser;
@@ -82,7 +85,13 @@ async fn run() -> Result<()> {
 
     match args.subcommand {
         Some(subcmd) => match subcmd {
-            Subcommand::Exec(args) => exec(&sess, &args).await?,
+            Subcommand::Exec(mut args) => {
+                if args.command == "-" {
+                    args.command.clear();
+                    std::io::stdin().read_to_string(&mut args.command)?;
+                }
+                exec(&sess, &args).await?;
+            }
         },
         None => repl::run(&sess).await?,
     }
