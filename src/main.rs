@@ -1,13 +1,14 @@
 use std::{
     io::{Read, Write},
     str::FromStr,
+    sync::Arc,
 };
 
 use anyhow::Result;
 use clap::Parser;
 use futures_util::TryStreamExt;
 use indexmap::IndexMap;
-use scylla::{frame::response::result::CqlValue, Session};
+use scylla::{authentication::PlainTextAuthenticator, frame::response::result::CqlValue, Session};
 use serde::Serialize;
 
 mod flatten;
@@ -19,10 +20,14 @@ mod serde_impls;
 
 #[derive(Parser)]
 struct Args {
-    #[clap(short, long, default_value = "9042")]
+    #[clap(long, default_value = "9042")]
     port: u16,
     #[clap(default_value = "localhost")]
     host: String,
+    #[clap(short, long)]
+    username: Option<String>,
+    #[clap(short, long)]
+    password: Option<String>,
     #[cfg(feature = "json")]
     #[clap(subcommand)]
     subcommand: Option<Subcommand>,
@@ -78,10 +83,15 @@ async fn main() -> Result<()> {
 
 async fn run() -> Result<()> {
     let args = Args::parse();
-    let sess = scylla::SessionBuilder::new()
-        .known_node(format!("{}:{}", args.host, args.port))
-        .build()
-        .await?;
+
+    let mut sess = scylla::SessionBuilder::new().known_node(format!("{}:{}", args.host, args.port));
+
+    if let (Some(user), Some(password)) = (args.username, args.password) {
+        let auth_provider = Arc::new(PlainTextAuthenticator::new(user, password));
+        sess = sess.authenticator_provider(auth_provider);
+    }
+
+    let sess = sess.build().await?;
 
     match args.subcommand {
         Some(subcmd) => match subcmd {
